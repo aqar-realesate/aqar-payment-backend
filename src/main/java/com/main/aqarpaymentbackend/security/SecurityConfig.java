@@ -26,11 +26,15 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.POST, "/fawaterk/auth/token").permitAll()
-                        .requestMatchers(HttpMethod.POST,
-                                "/excel/import",
-                                "/dues")
+                        // Fawaterk uses its signature, not an admin or customer JWT
+                        .requestMatchers(HttpMethod.POST, "/fawaterk/auth/token", "/fawaterk/webhook").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/excel/import", "/fawaterk/getTransactionData")
                         .hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET,
+                                "/dues", "/dues/{dueId}")
+                        .hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/fawaterk/dues/{dueId}/checkout")
+                        .hasRole("CUSTOMER")
                         .anyRequest().authenticated()
                 )
                 .headers(headers -> headers.frameOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin));

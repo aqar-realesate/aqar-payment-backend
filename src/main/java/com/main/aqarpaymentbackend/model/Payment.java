@@ -7,8 +7,12 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
 
+import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "payments")
@@ -19,31 +23,47 @@ import java.time.Instant;
 public class Payment {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private Integer id;
 
+    @Column(name = "payment_due_id")
+    private Integer paymentDueId;
+
+    @Column(name = "customer_id")
     private Integer customerId;
 
+    @Column(name = "unit_request_id")
     private Integer unitRequestId;
 
-    private Long amountCents;
+    @Column(name = "amount")
+    private BigDecimal amount;
 
+    @Column(name = "currency")
     private String currency;
     // EGP
+    @Column(name = "status")
     @Enumerated(EnumType.STRING)
     private PaymentStatus status;      // PENDING, PAID, FAILED
 
+    @Column(name = "payment_gateway")
     @Enumerated(EnumType.STRING)
-    private PaymentGateway gateway;
+    private PaymentGateway paymentGateway;
 
+    @Column(name = "provider_reference")
     private String providerReference;
 
-    private String providerTransactionId;
+    @Column(name = "provider_transaction_id")
+    private Integer providerTransactionId;
 
+    @Column(name = "checkout_url")
     private String checkoutUrl;
 
+    @Column(name = "checkout_expires_at")
     private Instant checkoutExpiresAt;
 
-    private Instant createdAt;
+    @Column(name = "created_at")
+    @CreationTimestamp
+    private Timestamp createdAt;
 
-    private Instant paidAt;
+    @Column(name = "paid_at")
+    private Timestamp paidAt;
 }
