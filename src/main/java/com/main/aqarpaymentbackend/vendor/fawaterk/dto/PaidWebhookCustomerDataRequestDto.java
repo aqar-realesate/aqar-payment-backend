@@ -12,12 +12,14 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class CreateTransactionResponseDataDto {
+public class PaidWebhookCustomerDataRequestDto {
 
-    @JsonProperty("intent_key")
-    private String intentKey;
-    @JsonProperty("url")
-    private String url;
-    @JsonProperty("expires_in")
-    private Integer expiresIn;
+    @JsonProperty("customer_unique_id")
+    private String customerUniqueId;
+    @JsonProperty("customer_first_name")
+    private String customerFirstName;
+    @JsonProperty("customer_last_name")
+    private String customerLastName;
+    @JsonProperty("customer_email")
+    private String customerEmail;
 }

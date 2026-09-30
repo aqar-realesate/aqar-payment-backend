@@ -7,17 +7,17 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class CreateTransactionResponseDataDto {
+public class GetPaymentMethodsDto {
 
-    @JsonProperty("intent_key")
-    private String intentKey;
-    @JsonProperty("url")
-    private String url;
-    @JsonProperty("expires_in")
-    private Integer expiresIn;
+    @JsonProperty("status")
+    private String status;
+    @JsonProperty("data")
+    private List<GetPaymentMethodsDataDto> data;
 }

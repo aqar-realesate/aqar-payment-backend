@@ -11,6 +11,11 @@ import org.springframework.security.config.annotation.web.configurers.HeadersCon
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 
 @Configuration
@@ -27,8 +32,17 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // Fawaterk uses its signature, not an admin or customer JWT
-                        .requestMatchers(HttpMethod.POST, "/fawaterk/auth/token", "/fawaterk/webhook").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/excel/import", "/fawaterk/getTransactionData")
+                        .requestMatchers(HttpMethod.POST,
+                                "/fawaterk/oauth/token",
+                                "/webhooks/fawaterak/paid_json",
+                                "/webhooks/fawaterak/failed_json").permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/fawaterk/getPaymentMethods",
+                                "/fawaterk/success",
+                                "/fawaterk/fail",
+                                "/fawaterk/pending",
+                                "/fawaterk/getTransactionData").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/excel/import")
                         .hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET,
                                 "/dues", "/dues/{dueId}")
@@ -42,4 +56,17 @@ public class SecurityConfig {
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(List.of("https://urgent-moistness-trifle.ngrok-free.dev"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("*"));
+        configuration.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+
 }

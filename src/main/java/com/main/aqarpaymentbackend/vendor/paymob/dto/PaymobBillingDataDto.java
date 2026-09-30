@@ -1,4 +1,4 @@
-package com.main.aqarpaymentbackend.vendor.fawaterk.dto;
+package com.main.aqarpaymentbackend.vendor.paymob.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class CustomerInfoDto {
+public class PaymobBillingDataDto {
 
     @JsonProperty("first_name")
     private String firstName;
@@ -18,4 +18,6 @@ public class CustomerInfoDto {
     private String lastName;
     @JsonProperty("email")
     private String email;
+    @JsonProperty("phone_number")
+    private String phoneNumber;
 }

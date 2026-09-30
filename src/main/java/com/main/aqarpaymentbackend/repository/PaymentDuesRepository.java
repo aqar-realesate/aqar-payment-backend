@@ -8,4 +8,6 @@ import java.util.List;
 
 @Repository
 public interface PaymentDuesRepository extends JpaRepository<PaymentDues, Integer> {
+
+    PaymentDues findByIntentKey(String intentKey);
 }

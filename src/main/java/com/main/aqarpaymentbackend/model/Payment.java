@@ -12,7 +12,6 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "payments")
@@ -31,9 +30,6 @@ public class Payment {
     @Column(name = "customer_id")
     private Integer customerId;
 
-    @Column(name = "unit_request_id")
-    private Integer unitRequestId;
-
     @Column(name = "amount")
     private BigDecimal amount;
 
@@ -48,6 +44,9 @@ public class Payment {
     @Enumerated(EnumType.STRING)
     private PaymentGateway paymentGateway;
 
+    @Column(name = "payment_method_id")
+    private Integer paymentMethodId;
+
     @Column(name = "provider_reference")
     private String providerReference;
 
@@ -59,6 +58,15 @@ public class Payment {
 
     @Column(name = "checkout_expires_at")
     private Instant checkoutExpiresAt;
+
+    @Column(name = "transaction_created_at")
+    private String transactionCreatedAt;
+
+    @Column(name = "paid_flag")
+    private Integer paidFlag;
+
+    @Column(name = "transactionLink")
+    private String transactionLink;
 
     @Column(name = "created_at")
     @CreationTimestamp

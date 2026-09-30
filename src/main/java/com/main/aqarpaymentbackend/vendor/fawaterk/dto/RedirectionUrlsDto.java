@@ -6,18 +6,18 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.math.BigDecimal;
-
 @Data
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class CartItemDto {
+public class RedirectionUrlsDto {
 
-    @JsonProperty("name")
-    private String itemName;
-    @JsonProperty("price")
-    private BigDecimal itemPrice;
-    @JsonProperty("quantity")
-    private Integer quantity;
+    @JsonProperty("successUrl")
+    private String successUrl;
+    @JsonProperty("failUrl")
+    private String failUrl;
+    @JsonProperty("pendingUrl")
+    private String pendingUrl;
+    @JsonProperty("webhookUrl")
+    private String webhookUrl;
 }

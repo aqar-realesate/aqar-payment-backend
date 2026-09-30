@@ -7,29 +7,27 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.math.BigDecimal;
-
 @Data
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class FawaterkPaymentWebhookDto {
+public class PaidWebhookRequestDto {
 
     @JsonProperty("transaction_key")
-    private String transactionKey;
-
+    private String intentKey;
     @JsonProperty("transaction_id")
-    private Long transactionId;
-
+    private Integer transactionId;
     @JsonProperty("payment_method")
     private String paymentMethod;
-
+    @JsonProperty("status")
     private String status;
-
-    private BigDecimal paidAmount;
-
+    @JsonProperty("paidAmount")
+    private String paidAmount;
+    @JsonProperty("paidCurrency")
     private String paidCurrency;
-
+    @JsonProperty("customerData")
+    private PaidWebhookCustomerDataRequestDto customerData;
+    @JsonProperty("transactionHashKey")
     private String transactionHashKey;
 }

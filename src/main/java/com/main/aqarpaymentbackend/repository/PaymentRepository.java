@@ -10,23 +10,5 @@ import java.util.Optional;
 
 @Repository
 public interface PaymentRepository extends JpaRepository<Payment, Integer> {
-    // Does this due already have a successful payment?
-    boolean existsByPaymentDueIdAndStatus(
-            Integer paymentDueId,
-            PaymentStatus status
-    );
-
-    // Find the newest pending attempt for this gateway
-    Optional<Payment>
-    findFirstByPaymentDueIdAndStatusAndPaymentGatewayOrderByIdDesc(
-            Integer paymentDueId,
-            PaymentStatus status,
-            PaymentGateway paymentGateway
-    );
-
-    // Find the Fawaterk checkout associated with this notification
-    Optional<Payment> findByProviderReferenceAndPaymentGateway(
-            String providerReference,
-            PaymentGateway paymentGateway
-    );
+    Payment findByProviderReference(String providerReference);
 }
