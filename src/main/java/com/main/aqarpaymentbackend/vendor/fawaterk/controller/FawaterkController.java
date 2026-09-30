@@ -37,18 +37,14 @@ public class FawaterkController {
             @CookieValue("Authorization") String token,
             @PathVariable("dueId") Integer dueId) {
 
-
         try {
-
             CreateTransactionResponseDto response = fawaterkService.createTransaction(token, dueId);
-
-            CreateTransactionResponseDataDto data = response.getData();
 
             return new ResponseEntity<>(
                     new ReturnObject(
                             "Transaction creation success",
                             true,
-                            data
+                            response
                     ), HttpStatus.OK
             );
         } catch (ResponseStatusException e) {

@@ -7,19 +7,15 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
+
 @Data
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class PaymobBillingDataDto {
+public class ItemsRequestDto {
 
-    @JsonProperty("first_name")
-    private String firstName;
-    @JsonProperty("last_name")
-    private String lastName;
-    @JsonProperty("email")
-    private String email;
-    @JsonProperty("phone_number")
-    private String phoneNumber;
+    private String name;
+    private BigDecimal amount;
 }

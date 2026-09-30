@@ -21,7 +21,7 @@ public interface FawaterkFeignClient {
     GetPaymentMethodsDto getPaymentMethods(@RequestHeader("Authorization") String token);
 
     @PostMapping("/api/v3/createTransaction")
-    CreateTransactionResponseDto createTransaction(
+    FawaterkCreateTransactionResponseDto createTransaction(
             @RequestHeader("Authorization") String token,
             @RequestBody CreateTransactionRequestDto request);
 

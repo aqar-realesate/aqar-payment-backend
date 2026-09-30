@@ -12,14 +12,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class PaymobBillingDataDto {
+public class UnitInfoDto {
 
-    @JsonProperty("first_name")
-    private String firstName;
-    @JsonProperty("last_name")
-    private String lastName;
-    @JsonProperty("email")
-    private String email;
-    @JsonProperty("phone_number")
-    private String phoneNumber;
+    @JsonProperty("title")
+    private String name;
 }

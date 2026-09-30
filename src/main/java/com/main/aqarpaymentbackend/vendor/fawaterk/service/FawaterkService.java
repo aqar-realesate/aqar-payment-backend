@@ -84,7 +84,7 @@ public class FawaterkService {
 
     @Transactional
     public CreateTransactionResponseDto createTransaction(String customerToken,
-                                                          Integer dueId) {
+                                                                  Integer dueId) {
 
         Integer customerId = jwtUtil.extractUserId(customerToken);
 
@@ -146,7 +146,7 @@ public class FawaterkService {
                 .sendEmail(true)
                 .build();
 
-        CreateTransactionResponseDto response = fawaterkFeignClient.createTransaction(token, request);
+        FawaterkCreateTransactionResponseDto fawaterkResponse = fawaterkFeignClient.createTransaction(token, request);
 
         Payment payment = Payment.builder()
                 .paymentDueId(dueId)
@@ -155,16 +155,26 @@ public class FawaterkService {
                 .currency(paymentDue.getCurrency())
                 .status(PaymentStatus.PENDING)
                 .paymentGateway(PaymentGateway.FAWATERK)
-                .providerReference(response.getData().getIntentKey())
-                .checkoutUrl(response.getData().getUrl())
-                .checkoutExpiresAt(Instant.ofEpochSecond(response.getData().getExpiresIn()))
+                .providerReference(fawaterkResponse.getData().getIntentKey())
+                .checkoutUrl(fawaterkResponse.getData().getUrl())
+                .checkoutExpiresAt(Instant.ofEpochSecond(fawaterkResponse.getData().getExpiresIn()))
                 .createdAt(Timestamp.valueOf(LocalDateTime.now()))
                 .build();
 
         paymentRepository.save(payment);
-        paymentDue.setIntentKey(response.getData().getIntentKey());
+        paymentDue.setPaymentId(payment.getId());
+        paymentDue.setIntentKey(fawaterkResponse.getData().getIntentKey());
         paymentDue.setPaymentId(payment.getId());
         paymentDuesRepository.save(paymentDue);
+
+        CreateTransactionResponseDto response = CreateTransactionResponseDto.builder()
+                .paymentId(payment.getId())
+                .checkoutUrl(payment.getCheckoutUrl())
+                .intentKey(payment.getProviderReference())
+                .expiresIn(fawaterkResponse.getData().getExpiresIn())
+                .paymentStatus(payment.getStatus())
+                .paymentGateway(payment.getPaymentGateway())
+                .build();
 
         log.info("Transaction creation success, and both payment and payment dues tables are updated, payment: {}, payment due: {}", payment, paymentDue);
         return response;

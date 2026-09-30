@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Data
@@ -15,7 +16,7 @@ import java.util.List;
 public class PaymobCreateIntentionRequestDto {
 
     @JsonProperty("amount")
-    private Long amount;
+    private BigDecimal amount;
 
     @JsonProperty("currency")
     private String currency;
@@ -24,6 +25,9 @@ public class PaymobCreateIntentionRequestDto {
     @JsonProperty("payment_methods")
     private List<Integer> paymentMethods;
 
+    @JsonProperty("items")
+    private List<ItemsRequestDto> items;
+
     @JsonProperty("billing_data")
     private PaymobBillingDataDto billingData;
 
@@ -31,11 +35,14 @@ public class PaymobCreateIntentionRequestDto {
     @JsonProperty("special_reference")
     private String specialReference;
 
-    // Where Paymob sends payment results to our backend
+    @JsonProperty("expiration")
+    private Integer expiration;
+
+    // Webhook url
     @JsonProperty("notification_url")
     private String notificationUrl;
 
-    // Where the customer’s browser goes after payment
+    // Redirect url
     @JsonProperty("redirection_url")
     private String redirectionUrl;
 }

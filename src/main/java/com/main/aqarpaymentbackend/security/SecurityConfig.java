@@ -35,20 +35,20 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,
                                 "/fawaterk/oauth/token",
                                 "/webhooks/fawaterak/paid_json",
-                                "/webhooks/fawaterak/failed_json").permitAll()
+                                "/webhooks/fawaterak/failed_json",
+                                "/paymob/auth/token").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/fawaterk/getPaymentMethods",
                                 "/fawaterk/success",
                                 "/fawaterk/fail",
                                 "/fawaterk/pending",
                                 "/fawaterk/getTransactionData").permitAll()
+                        .requestMatchers("/paymob/dues/{dueId}/createIntention").hasRole("CUSTOMER")
                         .requestMatchers(HttpMethod.POST, "/excel/import")
                         .hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET,
                                 "/dues", "/dues/{dueId}")
                         .hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/fawaterk/dues/{dueId}/checkout")
-                        .hasRole("CUSTOMER")
                         .anyRequest().authenticated()
                 )
                 .headers(headers -> headers.frameOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin));

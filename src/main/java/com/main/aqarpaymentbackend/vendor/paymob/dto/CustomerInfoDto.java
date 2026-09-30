@@ -12,14 +12,14 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class PaymobBillingDataDto {
+public class CustomerInfoDto {
 
-    @JsonProperty("first_name")
+    @JsonProperty("firstName")
     private String firstName;
-    @JsonProperty("last_name")
+    @JsonProperty("lastName")
     private String lastName;
     @JsonProperty("email")
     private String email;
-    @JsonProperty("phone_number")
+    @JsonProperty("phone")
     private String phoneNumber;
 }

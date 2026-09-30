@@ -50,6 +50,12 @@ public class Payment {
     @Column(name = "provider_reference")
     private String providerReference;
 
+    @Column(name = "special_reference")
+    private String specialReference;
+
+    @Column(name = "provider_order_id")
+    private Long providerOrderId;
+
     @Column(name = "provider_transaction_id")
     private Integer providerTransactionId;
 
