@@ -2,11 +2,14 @@ package com.main.aqarpaymentbackend.vendor.paymob.controller;
 
 import com.main.aqarpaymentbackend.util.ReturnObject;
 import com.main.aqarpaymentbackend.vendor.paymob.dto.PaymobAuthTokenResponseDto;
+import com.main.aqarpaymentbackend.vendor.paymob.dto.PaymobWebhookRequestDto;
 import com.main.aqarpaymentbackend.vendor.paymob.service.PaymobService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/paymob")
@@ -35,4 +38,16 @@ public class PaymobController {
             @PathVariable("dueId") Integer dueId) {
         return paymobService.createIntention(token, dueId);
     }
-}
+
+    @PostMapping("/webhook")
+    public ResponseEntity<ReturnObject> paymobWebhook(
+            @RequestParam("hmac") String receivedHmac,
+            @RequestBody PaymobWebhookRequestDto request) {
+        return paymobService.paymobWebhook(receivedHmac, request);
+    }
+
+    @GetMapping("/return")
+    public ResponseEntity<ReturnObject> paymobReturn(
+            @RequestParam Map<String, String> params) {
+        return paymobService.paymobReturn(params);
+    }}

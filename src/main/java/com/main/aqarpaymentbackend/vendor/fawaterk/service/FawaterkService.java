@@ -427,6 +427,7 @@ public class FawaterkService {
         );
     }
 
+    // In pending case, now webhooks fires so return to this method and keep payment and due as PENDING
     @Transactional
     public ResponseEntity<ReturnObject> pendingTransaction(String intentKey, String errorMessage) {
 
@@ -533,6 +534,7 @@ public class FawaterkService {
     }
 
 
+    @Transactional
     public void checkPaidPaymentStatus(Payment payment,
                                        PaymentDues paymentDue,
                                        GetTransactionDataResponseDto transactionData) {
