@@ -351,31 +351,13 @@ public class PaymobService {
         String receivedHmac = params.get("hmac");
 
         String amountCents = params.get("amount_cents");
-        String createdAt = params.get("created_at");
         String currency = params.get("currency");
-        String errorOccurred = params.get("error_occured");
-        String hasParentTransaction = params.get("has_parent_transaction");
-        String transactionId = params.get("id");
         String integrationId = params.get("integration_id");
-        String is3dSecure = params.get("is_3d_secure");
-        String isAuth = params.get("is_auth");
-        String isCapture = params.get("is_capture");
-        String isRefunded = params.get("is_refunded");
-        String isStandalonePayment = params.get("is_standalone_payment");
-        String isVoided = params.get("is_voided");
-
         // Paymob's redirect example uses "order"; its HMAC guide says "order_id".
         String orderId = params.get("order_id");
         if (orderId == null) {
             orderId = params.get("order");
         }
-
-        String owner = params.get("owner");
-        String pending = params.get("pending");
-        String sourcePan = params.get("source_data.pan");
-        String sourceSubType = params.get("source_data.sub_type");
-        String sourceType = params.get("source_data.type");
-        String success = params.get("success");
 
         if (!paymobHmacVerifier.isValid(params, receivedHmac)) {
             return new ResponseEntity<>(
