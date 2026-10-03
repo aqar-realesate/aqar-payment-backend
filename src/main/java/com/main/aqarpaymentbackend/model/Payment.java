@@ -59,7 +59,7 @@ public class Payment {
     @Column(name = "provider_transaction_id")
     private Integer providerTransactionId;
 
-    @Column(name = "checkout_url")
+    @Column(name = "checkout_url", columnDefinition = "TEXT")
     private String checkoutUrl;
 
     @Column(name = "checkout_expires_at")

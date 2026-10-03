@@ -37,15 +37,24 @@ public class SecurityConfig {
                                 "/webhooks/fawaterak/paid_json",
                                 "/webhooks/fawaterak/failed_json",
                                 "/paymob/auth/token",
-                                "/paymob/webhook").permitAll()
+                                "/paymob/webhook",
+                                "/stripe/webhook")
+                        .permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/fawaterk/getPaymentMethods",
                                 "/fawaterk/success",
                                 "/fawaterk/fail",
                                 "/fawaterk/pending",
                                 "/fawaterk/getTransactionData",
-                                "/paymob/return").permitAll()
-                        .requestMatchers("/paymob/dues/{dueId}/createIntention").hasRole("CUSTOMER")
+                                "/paymob/return",
+                                "/stripe/success",
+                                "/stripe/cancle")
+                        .permitAll()
+                        .requestMatchers(
+                                "/paymob/dues/{dueId}/createIntention",
+                                "/stripe/dues/{dueId}/checkout",
+                                "/stripe/checkout/session/{id}")
+                        .hasRole("CUSTOMER")
                         .requestMatchers(HttpMethod.POST, "/excel/import")
                         .hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET,

@@ -1,0 +1,36 @@
+# Copy to application.properties and fill in local values.
+# The real application.properties file is ignored by Git.
+
+spring.application.name=
+spring.datasource.url=
+spring.datasource.username=
+spring.datasource.password=
+spring.datasource.driver-class-name=
+spring.jpa.hibernate.ddl-auto=
+spring.jpa.show-sql=
+spring.jpa.properties.hibernate.dialect=
+server.servlet.context-path=
+server.port=
+jwt.secret=
+jwt.expiration.ms=
+jwt.customer-issuer=
+jwt.admin-issuer=
+customer.base-url=
+paymob.base-url=
+paymob.api-key=
+paymob.secret-key=
+paymob.public-key=
+paymob.card-integration-id=
+paymob.hmac-secret=
+paymob.notification-url=
+paymob.redirection-url=
+fawaterk.base-url=
+fawaterk.client-id=
+fawaterk.client-secret=
+fawaterk.hash-api-key=
+stripe.base-url=
+stripe.secret-key=
+stripe.public-key=
+stripe.webhook.signing-key=
+stripe.success-url=
+stripe.cancle-url=
