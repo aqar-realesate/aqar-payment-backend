@@ -97,7 +97,7 @@ public class FawaterkController {
 
     @GetMapping("/pending")
     public ResponseEntity<ReturnObject> pendingTransaction(@RequestParam("intent_key") String intentKey,
-                                                        @RequestParam("errorMessage") String errorMessage) {
+                                                        @RequestParam(value = "errorMessage", required = false) String errorMessage) {
 
         return fawaterkService.pendingTransaction(intentKey, errorMessage);
     }

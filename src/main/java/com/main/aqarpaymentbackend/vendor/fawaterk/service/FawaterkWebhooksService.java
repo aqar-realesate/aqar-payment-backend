@@ -32,6 +32,9 @@ public class FawaterkWebhooksService {
     public ResponseEntity<ReturnObject> paidWebhook(PaidWebhookRequestDto request) {
 
         try {
+            log.info("Fawaterk paid webhook received: intentKey={} transactionId={}",
+                    request.getIntentKey(), request.getTransactionId());
+            // Verify the webhook hash before trusting its payment details.
             String calculatedHash = CalculateHashKeys.calculateWebhookHash(
                     request.getIntentKey(),
                     request.getTransactionId(),
@@ -40,6 +43,8 @@ public class FawaterkWebhooksService {
             );
 
             if (!calculatedHash.equals(request.getTransactionHashKey())) {
+                log.warn("Fawaterk paid webhook rejected: invalid hash, intentKey={} transactionId={}",
+                        request.getIntentKey(), request.getTransactionId());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid webhook signature",
@@ -58,7 +63,10 @@ public class FawaterkWebhooksService {
 
             GetTransactionDataResponseDto transactionData = fawaterkFeignClient.getTransactionData(token, intentKey);
 
+            // Confirm the transaction with Fawaterk before updating local records.
             if (!transactionData.getStatus().equals("success") && transactionData.getData() == null) {
+                log.warn("Fawaterk paid webhook rejected: transaction details unavailable, intentKey={}",
+                        request.getIntentKey());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Failed to fetch the fawaterk success response",
@@ -70,6 +78,7 @@ public class FawaterkWebhooksService {
 
             PaymentDues paymentDue = paymentDuesRepository.findByIntentKey(request.getIntentKey());
             if (paymentDue == null) {
+                log.warn("Fawaterk paid webhook rejected: due not found, intentKey={}", request.getIntentKey());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid intent key",
@@ -80,6 +89,8 @@ public class FawaterkWebhooksService {
             }
             Payment payment = paymentRepository.findByProviderReference(request.getIntentKey());
             if (payment == null) {
+                log.warn("Fawaterk paid webhook rejected: payment not found, intentKey={} dueId={}",
+                        request.getIntentKey(), paymentDue.getId());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid intent key",
@@ -91,6 +102,8 @@ public class FawaterkWebhooksService {
 
 
             if (!transactionData.getData().getPaidFlag().equals(1)) {
+                log.warn("Fawaterk paid webhook rejected: provider has not confirmed payment, intentKey={} paymentId={}",
+                        request.getIntentKey(), payment.getId());
                 return new ResponseEntity<>(
                         new ReturnObject("Payment is not confirmed yet",
                                 false,
@@ -99,7 +112,10 @@ public class FawaterkWebhooksService {
                 );
             }
 
+            // Record the paid result if either local record still needs it.
             fawaterkService.checkPaidPaymentStatus(payment, paymentDue, transactionData);
+            log.info("Fawaterk paid webhook processed: intentKey={} dueId={} paymentId={}",
+                    request.getIntentKey(), paymentDue.getId(), payment.getId());
 
             SuccessTransactionResponseDto response = SuccessTransactionResponseDto.builder()
                     .status(transactionData.getStatus())
@@ -131,6 +147,7 @@ public class FawaterkWebhooksService {
             );
 
         } catch (Exception e) {
+            log.error("Fawaterk paid webhook failed", e);
             return new ResponseEntity<>(
                     new ReturnObject(
                             e.getMessage(),
@@ -144,7 +161,10 @@ public class FawaterkWebhooksService {
     public ResponseEntity<ReturnObject> failedWebhook(FailedWebhookRequestDto request) {
 
         try {
+            log.info("Fawaterk failed webhook received: intentKey={} transactionId={}",
+                    request.getIntentKey(), request.getTransactionId());
 
+            // Verify the webhook hash before trusting its payment details.
             String calculatedHash = CalculateHashKeys.calculateWebhookHash(
                     request.getIntentKey(),
                     request.getTransactionId(),
@@ -153,6 +173,8 @@ public class FawaterkWebhooksService {
             );
 
             if (!calculatedHash.equals(request.getHashKey())) {
+                log.warn("Fawaterk failed webhook rejected: invalid hash, intentKey={} transactionId={}",
+                        request.getIntentKey(), request.getTransactionId());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid webhook signature",
@@ -170,7 +192,10 @@ public class FawaterkWebhooksService {
 
             GetTransactionDataResponseDto transactionData = fawaterkFeignClient.getTransactionData(token, intentKey);
 
+            // Use Fawaterk's current transaction status to decide the local result.
             if (!transactionData.getStatus().equals("success") && transactionData.getData() == null) {
+                log.warn("Fawaterk failed webhook rejected: transaction details unavailable, intentKey={}",
+                        request.getIntentKey());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Failed to fetch the fawaterk success response",
@@ -182,6 +207,7 @@ public class FawaterkWebhooksService {
 
             PaymentDues paymentDue = paymentDuesRepository.findByIntentKey(request.getIntentKey());
             if (paymentDue == null) {
+                log.warn("Fawaterk failed webhook rejected: due not found, intentKey={}", request.getIntentKey());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid intent key",
@@ -192,6 +218,8 @@ public class FawaterkWebhooksService {
             }
             Payment payment = paymentRepository.findByProviderReference(request.getIntentKey());
             if (payment == null) {
+                log.warn("Fawaterk failed webhook rejected: payment not found, intentKey={} dueId={}",
+                        request.getIntentKey(), paymentDue.getId());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid intent key",
@@ -201,8 +229,11 @@ public class FawaterkWebhooksService {
                 );
             }
 
+            // A confirmed paid transaction takes priority over a failed webhook.
             if (transactionData.getData().getPaidFlag().equals(1)) {
                 fawaterkService.checkPaidPaymentStatus(payment, paymentDue, transactionData);
+                log.info("Fawaterk failed webhook found paid transaction: intentKey={} dueId={} paymentId={}",
+                        request.getIntentKey(), paymentDue.getId(), payment.getId());
                 return new ResponseEntity<>(
                         new ReturnObject("Payment is already paid", true, null),
                         HttpStatus.OK
@@ -210,6 +241,8 @@ public class FawaterkWebhooksService {
             }
 
             if (payment.getStatus().equals(PaymentStatus.PAID) || paymentDue.getStatus().equals(PaymentStatus.PAID)) {
+                log.info("Fawaterk failed webhook left paid records unchanged: intentKey={} dueId={} paymentId={}",
+                        request.getIntentKey(), paymentDue.getId(), payment.getId());
                 return new ResponseEntity<>(
                         new ReturnObject("Paid payment left unchanged", true, null),
                         HttpStatus.OK
@@ -218,6 +251,7 @@ public class FawaterkWebhooksService {
 
             if (!transactionData.getData().getPaidFlag().equals(1)) {
 
+                // Keep the due pending while marking this payment attempt as failed.
                 if (!paymentDue.getStatus().equals(PaymentStatus.PENDING)) {
                     paymentDue.setStatus(PaymentStatus.PENDING);
                     paymentDue.setPaidFlag(transactionData.getData().getPaidFlag());
@@ -232,6 +266,8 @@ public class FawaterkWebhooksService {
                 payment.setTransactionLink(transactionData.getData().getTransactionLink());
                 payment.setTransactionCreatedAt(transactionData.getData().getTransactionCreatedAt());
                 paymentRepository.save(payment);
+                log.info("Fawaterk failed webhook processed: intentKey={} dueId={} paymentId={}",
+                        request.getIntentKey(), paymentDue.getId(), payment.getId());
 
                 FailTransactionResponseDto response = FailTransactionResponseDto.builder()
                         .status("failed")
@@ -262,6 +298,7 @@ public class FawaterkWebhooksService {
             }
 
         } catch (Exception e) {
+            log.error("Fawaterk failed webhook failed", e);
             return new ResponseEntity<>(
                     new ReturnObject(
                             e.getMessage(),
@@ -271,6 +308,7 @@ public class FawaterkWebhooksService {
             );
         }
 
+        log.warn("Fawaterk failed webhook had no matching result: intentKey={}", request.getIntentKey());
         return new ResponseEntity<>(
                 new ReturnObject(
                         "Bad Request",

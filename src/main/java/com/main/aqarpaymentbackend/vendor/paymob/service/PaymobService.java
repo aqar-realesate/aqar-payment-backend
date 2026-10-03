@@ -75,11 +75,13 @@ public class PaymobService {
     public ResponseEntity<ReturnObject> createIntention(String token, Integer dueId) {
 
         Integer customerId = jwtUtil.extractUserId(token);
+        log.info("Paymob intention requested: dueId={} customerId={}", dueId, customerId);
 
         String paymobToken = "Token " + secretKey;
 
         PaymentDues paymentDue = paymentDuesRepository.findById(dueId).orElse(null);
         if (paymentDue == null) {
+            log.warn("Paymob intention rejected: due not found, dueId={}", dueId);
             return new ResponseEntity<>(
                     new ReturnObject("Invalid payment deu id", false, null),
                     HttpStatus.NOT_FOUND
@@ -87,6 +89,7 @@ public class PaymobService {
         }
 
         if (!Objects.equals(customerId, paymentDue.getCustomerId())) {
+            log.warn("Paymob intention rejected: ownership mismatch, dueId={} customerId={}", dueId, customerId);
             return new ResponseEntity<>(
                     new ReturnObject("This payment due doesn't belong to this customer", false, null),
                     HttpStatus.CONFLICT
@@ -94,6 +97,7 @@ public class PaymobService {
         }
 
         if (paymentDue.getStatus().equals(PaymentStatus.PAID) || paymentDue.getPaidFlag().equals(1)) {
+            log.info("Paymob intention rejected: due already paid, dueId={}", dueId);
             return new ResponseEntity<>(
                     new ReturnObject("The payment due already paid", false, null),
                     HttpStatus.CONFLICT
@@ -108,6 +112,7 @@ public class PaymobService {
                     paymentDue.getAmount().movePointRight(2).longValueExact()
             );
         } catch (ArithmeticException e) {
+            log.warn("Paymob intention rejected: amount cannot be converted to cents, dueId={}", dueId);
             return new ResponseEntity<>(
                     new ReturnObject("Amount cannot be converted to cents", false, null),
                     HttpStatus.BAD_REQUEST
@@ -139,9 +144,11 @@ public class PaymobService {
                 .build();
         payment = paymentRepository.save(payment);
 
+        // Give Paymob a unique reference for this local payment attempt.
         String specialReference = "AQAR-PAYMENT-" + payment.getId();
         payment.setSpecialReference(specialReference);
         paymentRepository.save(payment);
+        log.info("Paymob payment attempt created: dueId={} paymentId={}", dueId, payment.getId());
 
 
 
@@ -169,12 +176,16 @@ public class PaymobService {
         } catch (FeignException e) {
             payment.setStatus(PaymentStatus.FAILED);
             paymentRepository.save(payment);
+            log.warn("Paymob intention creation failed: dueId={} paymentId={} providerStatus={}",
+                    dueId, payment.getId(), e.status());
 
             return new ResponseEntity<>(
                     new ReturnObject("Paymob could not create the intention", false, null),
                     HttpStatus.BAD_GATEWAY
             );
         }
+        log.info("Paymob intention created: dueId={} paymentId={} intentionId={} orderId={}",
+                dueId, payment.getId(), paymobResponse.getId(), paymobResponse.getIntentionOrderId());
 
         // This URL opens checkout.
         String checkoutUrl = "https://eg.checkout.paymob.com/?publicKey=" + publicKey + "&clientSecret=" + paymobResponse.getClientSecret();
@@ -189,6 +200,8 @@ public class PaymobService {
         paymentDue.setIntentKey(payment.getProviderReference());
         paymentDue.setPaidFlag(0);
         paymentDuesRepository.save(paymentDue);
+        log.info("Paymob intention linked to due: dueId={} paymentId={} intentionId={}",
+                dueId, payment.getId(), payment.getProviderReference());
 
         CreateIntentionResponseDto response = CreateIntentionResponseDto.builder()
                 .paymentId(payment.getId())
@@ -207,16 +220,21 @@ public class PaymobService {
     @Transactional
     public ResponseEntity<ReturnObject> paymobWebhook(String receivedHmac, PaymobWebhookRequestDto request) {
 
+        // Verify the HMAC before using callback values to update local records.
         boolean isHmacValid = paymobHmacVerifier.isValid(request, receivedHmac);
         if (!isHmacValid) {
+            log.warn("Paymob webhook rejected: invalid HMAC");
             return new ResponseEntity<>(
                     new ReturnObject("Invalid HMAC signature", false, null),
                     HttpStatus.CONFLICT
             );
         }
+        log.info("Paymob webhook verified: orderId={} transactionId={}",
+                request.getObj().getOrder().getId(), request.getObj().getTransactionId());
 
         Payment payment = paymentRepository.findByProviderOrderId(request.getObj().getOrder().getId());
         if (payment == null) {
+            log.warn("Paymob webhook rejected: order not found, orderId={}", request.getObj().getOrder().getId());
             return new ResponseEntity<>(
                     new ReturnObject("Mismatching order id with saved payment order id", false, null),
                     HttpStatus.CONFLICT
@@ -224,6 +242,8 @@ public class PaymobService {
         }
         PaymentDues paymentDue = paymentDuesRepository.findById(payment.getPaymentDueId()).orElse(null);
         if (paymentDue == null) {
+            log.warn("Paymob webhook rejected: due not found, paymentId={} dueId={}",
+                    payment.getId(), payment.getPaymentDueId());
             return new ResponseEntity<>(
                     new ReturnObject("Invalid payment due id", false, null),
                     HttpStatus.CONFLICT
@@ -235,6 +255,8 @@ public class PaymobService {
                 || paymentDue.getAmount() == null
                 || payment.getAmount().compareTo(paymentDue.getAmount()) != 0
                 || !Objects.equals(payment.getCurrency(), paymentDue.getCurrency())) {
+            log.warn("Paymob webhook rejected: payment and due mismatch, paymentId={} dueId={}",
+                    payment.getId(), paymentDue.getId());
             return new ResponseEntity<>(
                     new ReturnObject("Payment and Payment due do not match", false, null),
                     HttpStatus.CONFLICT
@@ -248,6 +270,8 @@ public class PaymobService {
                 || !payment.getCurrency().equals(request.getObj().getPaymentCurrency())
                 || !payment.getPaymentMethodId().equals(request.getObj().getIntegrationId())
         ) {
+            log.warn("Paymob webhook rejected: provider data mismatch, paymentId={} dueId={} transactionId={}",
+                    payment.getId(), paymentDue.getId(), request.getObj().getTransactionId());
             return new ResponseEntity<>(
                     new ReturnObject("Mismatching data between saved payment and webhook data", false, null), HttpStatus.CONFLICT
             );
@@ -256,6 +280,8 @@ public class PaymobService {
         // Handle the payment status
         if (Boolean.TRUE.equals(request.getObj().getPending())) {
             // Keep pending. Never downgrade PAID.
+            log.info("Paymob webhook left payment pending: paymentId={} dueId={} transactionId={}",
+                    payment.getId(), paymentDue.getId(), request.getObj().getTransactionId());
         } else if (Boolean.TRUE.equals(request.getObj().getSuccess()) &&
                 Boolean.FALSE.equals(request.getObj().getPending())) {
 
@@ -265,6 +291,8 @@ public class PaymobService {
                         payment.getProviderTransactionId(),
                         request.getObj().getTransactionId())) {
                     // Paymob sent the same success callback again.
+                    log.info("Paymob webhook repeated paid transaction: paymentId={} dueId={} transactionId={}",
+                            payment.getId(), paymentDue.getId(), request.getObj().getTransactionId());
                     return new ResponseEntity<>(
                             new ReturnObject("Payment already processed", true, null),
                             HttpStatus.OK
@@ -314,6 +342,8 @@ public class PaymobService {
                     payment.setPaidAt(Timestamp.valueOf(LocalDateTime.now()));
                 }
                 paymentRepository.save(payment);
+                log.info("Paymob payment marked paid: paymentId={} dueId={} transactionId={}",
+                        payment.getId(), paymentDue.getId(), request.getObj().getTransactionId());
             }
 
             if (!paymentDue.getStatus().equals(PaymentStatus.PAID) && !Integer.valueOf(1).equals(paymentDue.getPaidFlag())) {
@@ -323,6 +353,7 @@ public class PaymobService {
                     paymentDue.setPaidAt(Timestamp.valueOf(LocalDateTime.now()));
                 }
                 paymentDuesRepository.save(paymentDue);
+                log.info("Paymob due marked paid: dueId={} paymentId={}", paymentDue.getId(), payment.getId());
             }
         } else if (Boolean.FALSE.equals(request.getObj().getSuccess()) && Boolean.FALSE.equals(request.getObj().getPending())) {
             // Mark only this payment attempt FAILED.
@@ -331,9 +362,13 @@ public class PaymobService {
                 payment.setPaidFlag(0);
                 payment.setProviderTransactionId(request.getObj().getTransactionId());
                 paymentRepository.save(payment);
+                log.info("Paymob payment attempt marked failed: paymentId={} dueId={} transactionId={}",
+                        payment.getId(), paymentDue.getId(), request.getObj().getTransactionId());
             }
         } else {
             // Missing/unknown result: reject without changing the database.
+            log.warn("Paymob webhook rejected: unknown result, paymentId={} dueId={} transactionId={}",
+                    payment.getId(), paymentDue.getId(), request.getObj().getTransactionId());
             return new ResponseEntity<>(
                     new ReturnObject("Unknown payment status from paymob", false, null),
                     HttpStatus.BAD_REQUEST
@@ -348,6 +383,7 @@ public class PaymobService {
 
     public ResponseEntity<ReturnObject> paymobReturn(Map<String, String> params) {
 
+        log.info("Paymob return received");
         String receivedHmac = params.get("hmac");
 
         String amountCents = params.get("amount_cents");
@@ -360,6 +396,7 @@ public class PaymobService {
         }
 
         if (!paymobHmacVerifier.isValid(params, receivedHmac)) {
+            log.warn("Paymob return rejected: invalid HMAC");
             return new ResponseEntity<>(
                     new ReturnObject("Invalid Paymob HMAC", false, null),
                     HttpStatus.BAD_REQUEST
@@ -376,6 +413,7 @@ public class PaymobService {
             parsedAmountCents.toBigIntegerExact(); // Paymob amount must be whole cents
             parsedIntegrationId = Integer.parseInt(integrationId);
         } catch (NumberFormatException | ArithmeticException e) {
+            log.warn("Paymob return rejected: invalid callback values");
             return new ResponseEntity<>(
                     new ReturnObject("Invalid Paymob callback values", false, null),
                     HttpStatus.BAD_REQUEST
@@ -385,6 +423,7 @@ public class PaymobService {
 
         Payment payment = paymentRepository.findByProviderOrderId(parsedOrderId);
         if (payment == null) {
+            log.warn("Paymob return rejected: order not found, orderId={}", parsedOrderId);
             return new ResponseEntity<>(
                     new ReturnObject("Invalid order id", false, null),
                     HttpStatus.NOT_FOUND
@@ -396,6 +435,8 @@ public class PaymobService {
                 || payment.getAmount().movePointRight(2).compareTo(parsedAmountCents) != 0
                 || !Objects.equals(payment.getCurrency(), currency)
                 || !Objects.equals(payment.getPaymentMethodId(), parsedIntegrationId)) {
+            log.warn("Paymob return rejected: payment data mismatch, orderId={} paymentId={}",
+                    parsedOrderId, payment.getId());
             return new ResponseEntity<>(
                     new ReturnObject("Paymob callback does not match the payment", false, null),
                     HttpStatus.CONFLICT
@@ -404,6 +445,8 @@ public class PaymobService {
 
         PaymentDues paymentDue = paymentDuesRepository.findById(payment.getPaymentDueId()).orElse(null);
         if (paymentDue == null) {
+            log.warn("Paymob return rejected: due not found, paymentId={} dueId={}",
+                    payment.getId(), payment.getPaymentDueId());
             return new ResponseEntity<>(
                     new ReturnObject("Invalid payment id", false, null),
                     HttpStatus.NOT_FOUND
@@ -411,6 +454,7 @@ public class PaymobService {
         }
 
 
+        // Show the local result; the webhook is responsible for changing payment status.
         PaymentResultDto response = PaymentResultDto.builder()
                 .paymentId(payment.getId())
                 .paymentDueId(paymentDue.getId())
@@ -421,6 +465,8 @@ public class PaymobService {
                 .paidAt(payment.getPaidAt())
                 .build();
 
+        log.info("Paymob return result ready: paymentId={} dueId={} paymentStatus={}",
+                payment.getId(), paymentDue.getId(), payment.getStatus());
         return new ResponseEntity<>(
                 new ReturnObject("Payment result fetched successfully", true, response),
                 HttpStatus.OK

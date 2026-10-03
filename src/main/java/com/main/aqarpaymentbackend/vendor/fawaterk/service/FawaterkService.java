@@ -46,6 +46,13 @@ public class FawaterkService {
     private String clientId;
     @Value("${fawaterk.client-secret}")
     private String clientSecret;
+    @Value("${fawaterk.success-url}")
+    private String successUrl;
+    @Value("${fawaterk.pending-url}")
+    private String pendingUrl;
+    @Value("${fawaterk.fail-url}")
+    private String failUrl;
+
 
     public OAuthResponseDto fawaterkOAuth() {
 
@@ -62,6 +69,7 @@ public class FawaterkService {
 
         OAuthResponseDto oauth = fawaterkOAuth();
         if (oauth == null) {
+            log.warn("Fawaterk payment methods unavailable: authentication returned no response");
             return new ResponseEntity<>(
                     new ReturnObject(
                             "Please try again",
@@ -72,6 +80,7 @@ public class FawaterkService {
         }
         String token = "Bearer " + oauth.getAccessToken();
         GetPaymentMethodsDto response = fawaterkFeignClient.getPaymentMethods(token);
+        log.info("Fawaterk payment methods fetched");
 
         return new ResponseEntity<>(
                 new ReturnObject(
@@ -86,57 +95,104 @@ public class FawaterkService {
     public CreateTransactionResponseDto createTransaction(String customerToken,
                                                                   Integer dueId) {
 
+        // Identify the customer requesting this checkout.
         Integer customerId = jwtUtil.extractUserId(customerToken);
+        log.info("Fawaterk checkout requested: dueId={} customerId={}", dueId, customerId);
 
+        // Find the due that the customer wants to pay.
         Optional<PaymentDues> optPaymentDue = paymentDuesRepository.findById(dueId);
         if (optPaymentDue.isEmpty()) {
+            log.warn("Fawaterk checkout rejected: due not found, dueId={}", dueId);
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Invalid due id");
         }
         PaymentDues paymentDue = optPaymentDue.get();
 
+        // Check that this due belongs to the requesting customer.
         if (!Objects.equals(customerId, optPaymentDue.get().getCustomerId())) {
+            log.warn("Fawaterk checkout rejected: ownership mismatch, dueId={} customerId={}", dueId, customerId);
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This payment due doesn't belong to this customer");
         }
 
+        // Stop if the due has already been paid.
         if (paymentDue.getStatus().equals(PaymentStatus.PAID) || paymentDue.getPaidFlag().equals(1)) {
+            log.info("Fawaterk checkout rejected: due already paid, dueId={}", dueId);
             throw new ResponseStatusException(HttpStatus.CONFLICT, "The payment due already paid");
         }
 
+        // Reuse a live Fawaterk checkout or reject a live checkout from another gateway.
+        if (paymentDue.getPaymentId() != null) {
+            Payment existing = paymentRepository.findById(paymentDue.getPaymentId()).orElse(null);
+
+            if (existing != null
+                    && existing.getStatus() == PaymentStatus.PENDING
+                    && existing.getCheckoutUrl() != null
+                    && existing.getCheckoutExpiresAt() != null
+                    && existing.getCheckoutExpiresAt().isAfter(Instant.now())) {
+
+                if (existing.getPaymentGateway() != PaymentGateway.FAWATERK) {
+                    log.warn("Fawaterk checkout rejected: another gateway has a live checkout, dueId={} paymentId={} gateway={}",
+                            dueId, existing.getId(), existing.getPaymentGateway());
+                    throw new ResponseStatusException(
+                            HttpStatus.CONFLICT, "Another checkout is still active");
+                }
+
+                log.info("Fawaterk checkout reused: dueId={} paymentId={} intentKey={}",
+                        dueId, existing.getId(), existing.getProviderReference());
+                return CreateTransactionResponseDto.builder()
+                        .paymentId(existing.getId())
+                        .checkoutUrl(existing.getCheckoutUrl())
+                        .intentKey(existing.getProviderReference())
+                        .expiresIn((int) java.time.Duration.between(Instant.now(), existing.getCheckoutExpiresAt()).getSeconds())
+                        .paymentStatus(existing.getStatus())
+                        .paymentGateway(existing.getPaymentGateway())
+                        .build();
+            }
+        }
+
+        // Authenticate before asking Fawaterk to create a transaction.
         OAuthResponseDto oauth = fawaterkOAuth();
 
         String token = "Bearer " + oauth.getAccessToken();
 
+        // Load the customer details used in the checkout request.
         ReturnObject customerDetails = customerFeignClient.getCustomerDetails(customerToken).getBody();
         if (Boolean.FALSE.equals(customerDetails.getStatus()) && customerDetails.getData() == null) {
+            log.warn("Fawaterk checkout rejected: customer details unavailable, dueId={} customerId={}", dueId, customerId);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid session, please login again");
         }
         CustomerDetailsDto customerDetailsDto = objectMapper.convertValue(customerDetails.getData(), CustomerDetailsDto.class);
 
+        // Load the unit details used as the checkout item.
         ReturnObject unitDetails = customerFeignClient.getUnitDetails(customerToken, paymentDue.getUnitId()).getBody();
         if (Boolean.FALSE.equals(unitDetails.getStatus()) && unitDetails.getData() == null){
+            log.warn("Fawaterk checkout rejected: unit details unavailable, dueId={} unitId={}", dueId, paymentDue.getUnitId());
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid session, please login again");
         }
         UnitDetailsDto unitDetailsDto = objectMapper.convertValue(unitDetails.getData(), UnitDetailsDto.class);
 
+        // Build the customer information for Fawaterk.
         CustomerInfoDto fawaterkCustomerInfo = CustomerInfoDto.builder()
                 .firstName(customerDetailsDto.getFirstName())
                 .lastName(customerDetailsDto.getLastName())
                 .email(customerDetailsDto.getEmail())
                 .build();
 
+        // Build the item being paid for.
         CartItemDto fawaterkCartItem = CartItemDto.builder()
                 .itemName(unitDetailsDto.getUnitName())
                 .itemPrice(unitDetailsDto.getUnitPrice())
                 .quantity(1)
                 .build();
 
+        // Tell Fawaterk where to redirect the customer after checkout.
         RedirectionUrlsDto redirectionUrls = RedirectionUrlsDto.builder()
-                .successUrl("https://urgent-moistness-trifle.ngrok-free.dev/api/payment/fawaterk/success")
-                .pendingUrl("https://urgent-moistness-trifle.ngrok-free.dev/api/payment/fawaterk/pending")
-                .failUrl("https://urgent-moistness-trifle.ngrok-free.dev/api/payment/fawaterk/fail")
+                .successUrl(successUrl)
+                .pendingUrl(pendingUrl)
+                .failUrl(failUrl)
                 .build();
 
 
+        // Build the Fawaterk transaction request from the due and customer details.
         CreateTransactionRequestDto request = CreateTransactionRequestDto.builder()
                 .cartTotal(paymentDue.getAmount())
                 .currency(paymentDue.getCurrency())
@@ -146,8 +202,12 @@ public class FawaterkService {
                 .sendEmail(true)
                 .build();
 
+        // Create the transaction with Fawaterk.
         FawaterkCreateTransactionResponseDto fawaterkResponse = fawaterkFeignClient.createTransaction(token, request);
+        log.info("Fawaterk transaction created: dueId={} intentKey={}",
+                dueId, fawaterkResponse.getData().getIntentKey());
 
+        // Save the new local payment attempt and its checkout details.
         Payment payment = Payment.builder()
                 .paymentDueId(dueId)
                 .customerId(customerDetailsDto.getId())
@@ -157,16 +217,21 @@ public class FawaterkService {
                 .paymentGateway(PaymentGateway.FAWATERK)
                 .providerReference(fawaterkResponse.getData().getIntentKey())
                 .checkoutUrl(fawaterkResponse.getData().getUrl())
-                .checkoutExpiresAt(Instant.ofEpochSecond(fawaterkResponse.getData().getExpiresIn()))
+                .checkoutExpiresAt(Instant.now().plusSeconds(fawaterkResponse.getData().getExpiresIn()))
                 .createdAt(Timestamp.valueOf(LocalDateTime.now()))
                 .build();
 
         paymentRepository.save(payment);
+        log.info("Fawaterk payment attempt saved: dueId={} paymentId={} intentKey={}",
+                dueId, payment.getId(), payment.getProviderReference());
+
+        // Link the due to this payment attempt.
         paymentDue.setPaymentId(payment.getId());
         paymentDue.setIntentKey(fawaterkResponse.getData().getIntentKey());
         paymentDue.setPaymentId(payment.getId());
         paymentDuesRepository.save(paymentDue);
 
+        // Return the checkout URL and local payment status to the customer.
         CreateTransactionResponseDto response = CreateTransactionResponseDto.builder()
                 .paymentId(payment.getId())
                 .checkoutUrl(payment.getCheckoutUrl())
@@ -176,13 +241,15 @@ public class FawaterkService {
                 .paymentGateway(payment.getPaymentGateway())
                 .build();
 
-        log.info("Transaction creation success, and both payment and payment dues tables are updated, payment: {}, payment due: {}", payment, paymentDue);
+        log.info("Fawaterk checkout ready: dueId={} paymentId={} intentKey={}",
+                dueId, payment.getId(), payment.getProviderReference());
         return response;
     }
 
     @Transactional
     public ResponseEntity<ReturnObject> getTransactionData(String intentKey) {
 
+        log.info("Fawaterk transaction details requested: intentKey={}", intentKey);
         OAuthResponseDto oauth = fawaterkOAuth();
         String token = "Bearer " + oauth.getAccessToken();
         GetTransactionDataRequestDto request = GetTransactionDataRequestDto.builder()
@@ -192,6 +259,7 @@ public class FawaterkService {
         try {
             GetTransactionDataResponseDto transactionData = fawaterkFeignClient.getTransactionData(token, request);
             if (!transactionData.getStatus().equals("success") && transactionData.getData() == null) {
+                log.warn("Fawaterk transaction details unavailable: intentKey={}", intentKey);
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Failed to fetch the fawaterk success response",
@@ -201,6 +269,7 @@ public class FawaterkService {
                 );
             }
 
+            log.info("Fawaterk transaction details fetched: intentKey={}", intentKey);
             return new ResponseEntity<>(
                     new ReturnObject(
                             "Transaction details fetched successfully",
@@ -209,6 +278,7 @@ public class FawaterkService {
                     ), HttpStatus.OK
             );
         } catch (Exception e) {
+            log.error("Fawaterk transaction details request failed: intentKey={}", intentKey, e);
             return new ResponseEntity<>(
                     new ReturnObject(
                             e.getMessage(),
@@ -222,7 +292,9 @@ public class FawaterkService {
     @Transactional
     public ResponseEntity<ReturnObject> successTransaction(String intentKey) {
 
+        log.info("Fawaterk success redirect received: intentKey={}", intentKey);
         try {
+            // Authenticate and request the current transaction details from Fawaterk.
             OAuthResponseDto oauth = fawaterkOAuth();
             String token = "Bearer " + oauth.getAccessToken();
             GetTransactionDataRequestDto request = GetTransactionDataRequestDto.builder()
@@ -230,7 +302,9 @@ public class FawaterkService {
                     .build();
 
             GetTransactionDataResponseDto transactionData = fawaterkFeignClient.getTransactionData(token, request);
+            // Stop when Fawaterk did not return usable transaction details.
             if (!transactionData.getStatus().equals("success") && transactionData.getData() == null) {
+                log.warn("Fawaterk success redirect rejected: transaction details unavailable, intentKey={}", intentKey);
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Failed to fetch the fawaterk success response",
@@ -240,8 +314,10 @@ public class FawaterkService {
                 );
             }
 
+            // Find the due linked to this Fawaterk intent key.
             PaymentDues paymentDue = paymentDuesRepository.findByIntentKey(intentKey);
             if (paymentDue == null) {
+                log.warn("Fawaterk success redirect rejected: due not found, intentKey={}", intentKey);
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid intent key",
@@ -250,8 +326,12 @@ public class FawaterkService {
                         ), HttpStatus.NOT_FOUND
                 );
             }
+
+            // Find the local payment attempt linked to this intent key.
             Payment payment = paymentRepository.findByProviderReference(intentKey);
             if (payment == null) {
+                log.warn("Fawaterk success redirect rejected: payment not found, intentKey={} dueId={}",
+                        intentKey, paymentDue.getId());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid intent key",
@@ -261,10 +341,13 @@ public class FawaterkService {
                 );
             }
 
-            // Check success of the transaction
+            // Continue only when the transaction details request succeeded.
             if (transactionData.getStatus().equals("success")) {
 
+                // Confirm that Fawaterk reports this transaction as paid.
                 if (!transactionData.getData().getPaidFlag().equals(1)) {
+                    log.info("Fawaterk success redirect still unpaid: intentKey={} dueId={} paymentId={}",
+                            intentKey, paymentDue.getId(), payment.getId());
                     return new ResponseEntity<>(
                             new ReturnObject("Payment is not confirmed yet",
                                     false,
@@ -273,8 +356,12 @@ public class FawaterkService {
                     );
                 }
 
+                // Record the paid status on the payment and due when needed.
                 checkPaidPaymentStatus(payment, paymentDue, transactionData);
+                log.info("Fawaterk success payment recorded: intentKey={} dueId={} paymentId={}",
+                        intentKey, paymentDue.getId(), payment.getId());
 
+                // Build the success details returned to the customer.
                 SuccessTransactionResponseDto response = SuccessTransactionResponseDto.builder()
                         .status(transactionData.getStatus())
                         .paymentDueId(paymentDue.getId())
@@ -295,6 +382,8 @@ public class FawaterkService {
                         .currency(transactionData.getData().getCurrency())
                         .build();
 
+                log.info("Fawaterk success response ready: intentKey={} dueId={} paymentId={}",
+                        intentKey, paymentDue.getId(), payment.getId());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Success transaction",
@@ -304,6 +393,7 @@ public class FawaterkService {
                 );
             }
         } catch (Exception e) {
+            log.error("Fawaterk success redirect failed: intentKey={}", intentKey, e);
             return new ResponseEntity<>(
                     new ReturnObject(
                             e.getMessage(),
@@ -313,6 +403,7 @@ public class FawaterkService {
             );
         }
 
+        log.warn("Fawaterk success redirect rejected: unexpected transaction status, intentKey={}", intentKey);
         return new ResponseEntity<>(
                 new ReturnObject(
                         "Bad Request",
@@ -325,6 +416,7 @@ public class FawaterkService {
     @Transactional
     public ResponseEntity<ReturnObject> failTransaction(String intentKey, String errorMessage) {
 
+        log.info("Fawaterk fail redirect received: intentKey={}", intentKey);
         try {
             OAuthResponseDto oauth = fawaterkOAuth();
             String token = "Bearer " + oauth.getAccessToken();
@@ -334,6 +426,7 @@ public class FawaterkService {
 
             GetTransactionDataResponseDto transactionData = fawaterkFeignClient.getTransactionData(token, request);
             if (!transactionData.getStatus().equals("success") && transactionData.getData() == null) {
+                log.warn("Fawaterk fail redirect rejected: transaction details unavailable, intentKey={}", intentKey);
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Failed to fetch the fawaterk success response",
@@ -345,6 +438,7 @@ public class FawaterkService {
 
             PaymentDues paymentDues = paymentDuesRepository.findByIntentKey(intentKey);
             if (paymentDues == null) {
+                log.warn("Fawaterk fail redirect rejected: due not found, intentKey={}", intentKey);
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid intent key",
@@ -355,6 +449,8 @@ public class FawaterkService {
             }
             Payment payment = paymentRepository.findByProviderReference(intentKey);
             if (payment == null) {
+                log.warn("Fawaterk fail redirect rejected: payment not found, intentKey={} dueId={}",
+                        intentKey, paymentDues.getId());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid intent key",
@@ -366,6 +462,7 @@ public class FawaterkService {
 
             if (!transactionData.getData().getPaidFlag().equals(1)) {
 
+                // Keep the due payable while marking this unsuccessful attempt as failed.
                 if (!paymentDues.getStatus().equals(PaymentStatus.PENDING)) {
                     paymentDues.setStatus(PaymentStatus.PENDING);
                     paymentDues.setPaidFlag(transactionData.getData().getPaidFlag());
@@ -380,6 +477,8 @@ public class FawaterkService {
                 payment.setTransactionLink(transactionData.getData().getTransactionLink());
                 payment.setTransactionCreatedAt(transactionData.getData().getTransactionCreatedAt());
                 paymentRepository.save(payment);
+                log.info("Fawaterk failed attempt recorded: intentKey={} dueId={} paymentId={}",
+                        intentKey, paymentDues.getId(), payment.getId());
 
                 FailTransactionResponseDto response = FailTransactionResponseDto.builder()
                         .status("failed")
@@ -409,6 +508,7 @@ public class FawaterkService {
                 );
             }
         } catch (Exception e) {
+            log.error("Fawaterk fail redirect failed: intentKey={}", intentKey, e);
             return new ResponseEntity<>(
                     new ReturnObject(
                             e.getMessage(),
@@ -418,6 +518,7 @@ public class FawaterkService {
             );
         }
 
+        log.warn("Fawaterk fail redirect had no unpaid result: intentKey={}", intentKey);
         return new ResponseEntity<>(
                 new ReturnObject(
                         "Bad Request",
@@ -427,10 +528,11 @@ public class FawaterkService {
         );
     }
 
-    // In pending case, now webhooks fires so return to this method and keep payment and due as PENDING
+    // Show a pending result while the customer has not completed payment.
     @Transactional
     public ResponseEntity<ReturnObject> pendingTransaction(String intentKey, String errorMessage) {
 
+        log.info("Fawaterk pending redirect received: intentKey={}", intentKey);
         try {
             OAuthResponseDto oauth = fawaterkOAuth();
             String token = "Bearer " + oauth.getAccessToken();
@@ -440,6 +542,7 @@ public class FawaterkService {
 
             GetTransactionDataResponseDto transactionData = fawaterkFeignClient.getTransactionData(token, request);
             if (!transactionData.getStatus().equals("success") && transactionData.getData() == null) {
+                log.warn("Fawaterk pending redirect rejected: transaction details unavailable, intentKey={}", intentKey);
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Failed to fetch the fawaterk success response",
@@ -451,6 +554,7 @@ public class FawaterkService {
 
             PaymentDues paymentDues = paymentDuesRepository.findByIntentKey(intentKey);
             if (paymentDues == null) {
+                log.warn("Fawaterk pending redirect rejected: due not found, intentKey={}", intentKey);
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid intent key",
@@ -461,6 +565,8 @@ public class FawaterkService {
             }
             Payment payment = paymentRepository.findByProviderReference(intentKey);
             if (payment == null) {
+                log.warn("Fawaterk pending redirect rejected: payment not found, intentKey={} dueId={}",
+                        intentKey, paymentDues.getId());
                 return new ResponseEntity<>(
                         new ReturnObject(
                                 "Invalid intent key",
@@ -472,6 +578,7 @@ public class FawaterkService {
 
             if (!transactionData.getData().getPaidFlag().equals(1)) {
 
+                // Keep the due and payment attempt pending until payment is confirmed.
                 if (!paymentDues.getStatus().equals(PaymentStatus.PENDING)) {
                     paymentDues.setStatus(PaymentStatus.PENDING);
                     paymentDues.setPaidFlag(transactionData.getData().getPaidFlag());
@@ -486,6 +593,8 @@ public class FawaterkService {
                 payment.setTransactionLink(transactionData.getData().getTransactionLink());
                 payment.setTransactionCreatedAt(transactionData.getData().getTransactionCreatedAt());
                 paymentRepository.save(payment);
+                log.info("Fawaterk pending attempt recorded: intentKey={} dueId={} paymentId={}",
+                        intentKey, paymentDues.getId(), payment.getId());
 
                 FailTransactionResponseDto response = FailTransactionResponseDto.builder()
                         .status("pending")
@@ -515,6 +624,7 @@ public class FawaterkService {
                 );
             }
         } catch (Exception e) {
+            log.error("Fawaterk pending redirect failed: intentKey={}", intentKey, e);
             return new ResponseEntity<>(
                     new ReturnObject(
                             e.getMessage(),
@@ -524,6 +634,7 @@ public class FawaterkService {
             );
         }
 
+        log.warn("Fawaterk pending redirect had no unpaid result: intentKey={}", intentKey);
         return new ResponseEntity<>(
                 new ReturnObject(
                         "Bad Request",
@@ -538,6 +649,7 @@ public class FawaterkService {
     public void checkPaidPaymentStatus(Payment payment,
                                        PaymentDues paymentDue,
                                        GetTransactionDataResponseDto transactionData) {
+        // Fill in paid details only when the due or payment is not fully recorded yet.
         if (
                 !paymentDue.getStatus().equals(PaymentStatus.PAID)
                         || !paymentDue.getPaidFlag().equals(1)
@@ -550,6 +662,7 @@ public class FawaterkService {
             paymentDue.setPaidFlag(transactionData.getData().getPaidFlag());
             paymentDue.setTransactionLink(transactionData.getData().getTransactionLink());
             paymentDuesRepository.save(paymentDue);
+            log.info("Fawaterk due marked paid: dueId={} paymentId={}", paymentDue.getId(), payment.getId());
         }
 
         if (
@@ -567,6 +680,7 @@ public class FawaterkService {
             payment.setTransactionLink(transactionData.getData().getTransactionLink());
             payment.setPaidAt(Timestamp.from(Instant.parse(transactionData.getData().getPaidAt())));
             paymentRepository.save(payment);
+            log.info("Fawaterk payment marked paid: dueId={} paymentId={}", paymentDue.getId(), payment.getId());
         }
     }
 }
